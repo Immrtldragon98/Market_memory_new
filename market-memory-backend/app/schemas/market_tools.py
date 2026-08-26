@@ -14,3 +14,6 @@ class AlertCreate(BaseModel):
     symbol: str = Field(min_length=1, max_length=32)
     target_price: float = Field(gt=0)
     condition: Literal["above", "below"]
+    asset_type: Literal["crypto", "stock"]
+    backend_id: str = Field(min_length=1, max_length=200)
+    currency: str | None = Field(default=None, max_length=16)
