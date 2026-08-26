@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+market-memory-backend/.env
+
+# Node / Expo
+market-memory-frontend/node_modules/
+market-memory-frontend/.expo/
+market-memory-frontend/.env
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
