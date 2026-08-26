@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import alerts, journal, market, memory, watchlist
 from app.core.config import settings
+from app.modules.timeseries.router import router as timeseries_router
 
-app = FastAPI(title="Market Memory API", version="1.2.0")
+app = FastAPI(title="Market Memory API", version="2.0.0-alpha")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 
 app.include_router(market.router, prefix="/api", tags=["market"])
+app.include_router(timeseries_router, prefix="/api", tags=["timeseries"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(journal.router, prefix="/api", tags=["journal"])
 app.include_router(watchlist.router, prefix="/api", tags=["watchlist"])
