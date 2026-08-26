@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 from app.core.database import supabase
@@ -94,6 +95,55 @@ async def sample_asset(asset: dict, user_id: str, context: str) -> dict:
     }).execute().data or []
 
     return {"asset": canonical, "sample": sample, "mark": mark[0] if mark else None}
+
+
+async def sample_tracked_assets(user_id: str, context: str, max_assets: int = 10) -> list[dict]:
+    """Sample recently journaled canonical assets on app foreground/background.
+
+    We intentionally cap this list. User lifecycle events must never fan out into unbounded provider calls.
+    """
+    journal_rows = (
+        supabase.table("journal_entries")
+        .select("asset_id,created_at")
+        .eq("user_id", user_id)
+        .not_.is_("asset_id", "null")
+        .order("created_at", desc=True)
+        .limit(100)
+        .execute()
+        .data
+        or []
+    )
+
+    asset_ids: list[int] = []
+    seen: set[int] = set()
+    for row in journal_rows:
+        asset_id = row.get("asset_id")
+        if asset_id is None or asset_id in seen:
+            continue
+        seen.add(asset_id)
+        asset_ids.append(asset_id)
+        if len(asset_ids) >= max_assets:
+            break
+
+    if not asset_ids:
+        return []
+
+    asset_rows = (
+        supabase.table("market_assets")
+        .select("*")
+        .in_("id", asset_ids)
+        .execute()
+        .data
+        or []
+    )
+    by_id = {row["id"]: row for row in asset_rows}
+    ordered_assets = [by_id[asset_id] for asset_id in asset_ids if asset_id in by_id]
+
+    results = await asyncio.gather(
+        *(sample_asset(asset, user_id, context) for asset in ordered_assets),
+        return_exceptions=True,
+    )
+    return [item for item in results if isinstance(item, dict)]
 
 
 def get_history(asset_id: int, range_key: str) -> list[dict]:
