@@ -1,28 +1,17 @@
-import { useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { apiRequest } from '../../src/services/api';
 
+type WatchItem={id:number;symbol:string;name:string|null;asset_type:'stock'|'crypto';backend_id:string|null};
+
 export default function MarketScreen() {
-  const [symbol, setSymbol] = useState('');
-  const [note, setNote] = useState('');
-  const [price, setPrice] = useState('');
-
-  const payload = () => ({ symbol: symbol.trim().toUpperCase(), asset_type: 'stock', observation: note.trim(), price: price ? Number(price) : null });
-
-  const saveObservation = async () => {
-    if (!symbol.trim() || !note.trim()) return;
-    try { await apiRequest('/api/observations', { method: 'POST', body: JSON.stringify(payload()) }); setNote(''); Alert.alert('Remembered', 'Observation saved.'); }
-    catch (e) { Alert.alert('Error', e instanceof Error ? e.message : 'Unable to save.'); }
-  };
-
-  const saveSnapshot = async () => {
-    if (!symbol.trim()) return;
-    const body = { symbol: symbol.trim().toUpperCase(), asset_type: 'stock', price: price ? Number(price) : null, note: note.trim() || null, market_payload: { manual_capture: true } };
-    try { await apiRequest('/api/snapshots', { method: 'POST', body: JSON.stringify(body) }); setNote(''); Alert.alert('Captured', 'Immutable market snapshot saved.'); }
-    catch (e) { Alert.alert('Error', e instanceof Error ? e.message : 'Unable to capture.'); }
-  };
-
-  return <View style={s.page}><Text style={s.kicker}>OBSERVE</Text><Text style={s.title}>Market</Text><Text style={s.sub}>Capture what matters before hindsight changes the story.</Text><TextInput style={s.input} value={symbol} onChangeText={setSymbol} autoCapitalize="characters" placeholder="Symbol e.g. RELIANCE" placeholderTextColor="#64748b" /><TextInput style={s.input} value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="Current price (optional)" placeholderTextColor="#64748b" /><TextInput style={[s.input,s.note]} value={note} onChangeText={setNote} multiline placeholder="What are you noticing?" placeholderTextColor="#64748b" /><TouchableOpacity style={s.primary} onPress={saveObservation}><Text style={s.btn}>Save observation</Text></TouchableOpacity><TouchableOpacity style={s.secondary} onPress={saveSnapshot}><Text style={s.btn}>Capture snapshot</Text></TouchableOpacity></View>;
+  const [symbol,setSymbol]=useState(''); const [note,setNote]=useState(''); const [price,setPrice]=useState(''); const [watchlist,setWatchlist]=useState<WatchItem[]>([]); const [loading,setLoading]=useState(false);
+  const loadWatchlist=useCallback(async()=>{setLoading(true);try{setWatchlist(await apiRequest<WatchItem[]>('/api/watchlist'));}catch{}finally{setLoading(false);}},[]); useEffect(()=>{loadWatchlist();},[loadWatchlist]);
+  const baseSymbol=()=>symbol.trim().toUpperCase();
+  const saveObservation=async()=>{if(!baseSymbol()||!note.trim())return;try{await apiRequest('/api/observations',{method:'POST',body:JSON.stringify({symbol:baseSymbol(),asset_type:'stock',observation:note.trim(),price:price?Number(price):null})});setNote('');Alert.alert('Remembered','Observation saved.');}catch(e){Alert.alert('Error',e instanceof Error?e.message:'Unable to save.');}};
+  const saveSnapshot=async()=>{if(!baseSymbol())return;try{await apiRequest('/api/snapshots',{method:'POST',body:JSON.stringify({symbol:baseSymbol(),asset_type:'stock',price:price?Number(price):null,note:note.trim()||null,market_payload:{manual_capture:true}})});setNote('');Alert.alert('Captured','Immutable market snapshot saved.');}catch(e){Alert.alert('Error',e instanceof Error?e.message:'Unable to capture.');}};
+  const addWatchlist=async()=>{if(!baseSymbol())return;try{await apiRequest('/api/watchlist',{method:'POST',body:JSON.stringify({symbol:baseSymbol(),asset_type:'stock'})});await loadWatchlist();}catch(e){Alert.alert('Error',e instanceof Error?e.message:'Unable to add.');}};
+  const removeWatchlist=async(id:number)=>{await apiRequest(`/api/watchlist/${id}`,{method:'DELETE'});await loadWatchlist();};
+  return <ScrollView style={s.page} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={loadWatchlist} tintColor="#60a5fa"/>}><Text style={s.kicker}>OBSERVE</Text><Text style={s.title}>Market</Text><Text style={s.sub}>Capture what matters before hindsight changes the story.</Text><TextInput style={s.input} value={symbol} onChangeText={setSymbol} autoCapitalize="characters" placeholder="Symbol e.g. RELIANCE" placeholderTextColor="#64748b"/><TextInput style={s.input} value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="Current price (optional)" placeholderTextColor="#64748b"/><TextInput style={[s.input,s.note]} value={note} onChangeText={setNote} multiline placeholder="What are you noticing?" placeholderTextColor="#64748b"/><TouchableOpacity style={s.primary} onPress={saveObservation}><Text style={s.btn}>Save observation</Text></TouchableOpacity><View style={s.row}><TouchableOpacity style={s.secondary} onPress={saveSnapshot}><Text style={s.btn}>Capture snapshot</Text></TouchableOpacity><TouchableOpacity style={s.secondary} onPress={addWatchlist}><Text style={s.btn}>Add to watchlist</Text></TouchableOpacity></View><Text style={s.heading}>Watchlist</Text>{!watchlist.length?<Text style={s.empty}>No saved markets yet.</Text>:watchlist.map(x=><View key={x.id} style={s.card}><TouchableOpacity onPress={()=>setSymbol(x.symbol)}><Text style={s.symbol}>{x.symbol}</Text><Text style={s.meta}>{x.asset_type}</Text></TouchableOpacity><TouchableOpacity onPress={()=>removeWatchlist(x.id)}><Text style={s.remove}>Remove</Text></TouchableOpacity></View>)}</ScrollView>;
 }
-
-const s=StyleSheet.create({page:{flex:1,backgroundColor:'#0f172a',padding:24},kicker:{color:'#60a5fa',fontSize:11,fontWeight:'900'},title:{color:'#f8fafc',fontSize:30,fontWeight:'900',marginTop:4},sub:{color:'#94a3b8',marginVertical:12},input:{backgroundColor:'#111827',borderWidth:1,borderColor:'#334155',borderRadius:10,padding:14,color:'#f8fafc',marginBottom:10},note:{minHeight:120,textAlignVertical:'top'},primary:{backgroundColor:'#2563eb',padding:14,borderRadius:10,alignItems:'center'},secondary:{backgroundColor:'#1e293b',padding:14,borderRadius:10,alignItems:'center',marginTop:10},btn:{color:'#fff',fontWeight:'800'}});
+const s=StyleSheet.create({page:{flex:1,backgroundColor:'#0f172a'},content:{padding:24},kicker:{color:'#60a5fa',fontSize:11,fontWeight:'900'},title:{color:'#f8fafc',fontSize:30,fontWeight:'900',marginTop:4},sub:{color:'#94a3b8',marginVertical:12},input:{backgroundColor:'#111827',borderWidth:1,borderColor:'#334155',borderRadius:10,padding:14,color:'#f8fafc',marginBottom:10},note:{minHeight:120,textAlignVertical:'top'},primary:{backgroundColor:'#2563eb',padding:14,borderRadius:10,alignItems:'center'},row:{flexDirection:'row',gap:10,marginTop:10},secondary:{flex:1,backgroundColor:'#1e293b',padding:14,borderRadius:10,alignItems:'center'},btn:{color:'#fff',fontWeight:'800'},heading:{color:'#f8fafc',fontSize:18,fontWeight:'800',marginVertical:18},empty:{color:'#64748b'},card:{backgroundColor:'#111827',borderWidth:1,borderColor:'#334155',borderRadius:12,padding:14,marginBottom:8,flexDirection:'row',justifyContent:'space-between'},symbol:{color:'#60a5fa',fontWeight:'900',fontSize:17},meta:{color:'#64748b',fontSize:11,marginTop:3},remove:{color:'#f87171',fontWeight:'700'}});
