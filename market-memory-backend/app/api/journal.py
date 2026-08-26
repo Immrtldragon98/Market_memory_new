@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.auth import get_current_user
 from app.core.database import supabase
-from app.modules.timeseries.service import sample_asset
+from app.modules.timeseries.service import get_history, sample_asset
 from app.schemas.journal import JournalCreate
 
 router = APIRouter()
@@ -45,3 +47,38 @@ async def list_entries(symbol: str | None = None, user=Depends(get_current_user)
     if symbol:
         query = query.eq("symbol", symbol.strip().upper())
     return query.order("created_at", desc=True).limit(250).execute().data or []
+
+
+@router.get("/journal/{entry_id}/review")
+async def review_entry(
+    entry_id: int,
+    range_key: Literal["1d", "7d", "30d", "90d", "1y", "5y"] = Query(default="7d", alias="range"),
+    user=Depends(get_current_user),
+):
+    rows = (
+        supabase.table("journal_entries")
+        .select("*")
+        .eq("id", entry_id)
+        .eq("user_id", user.id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+
+    entry = rows[0]
+    entry_price = None
+    sample_id = entry.get("entry_price_sample_id")
+    if sample_id:
+        samples = supabase.table("market_price_samples").select("*").eq("id", sample_id).limit(1).execute().data or []
+        entry_price = samples[0] if samples else None
+
+    history = get_history(entry["asset_id"], range_key) if entry.get("asset_id") else []
+    return {
+        "entry": entry,
+        "entry_price": entry_price,
+        "range": range_key,
+        "history": history,
+    }
