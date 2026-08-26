@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Market Memory",
+    "slug": "market-memory",
+    "scheme": "marketmemory",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": ["expo-router"],
+    "experiments": { "typedRoutes": true },
+    "extra": {
+      "apiUrl": "http://localhost:8000",
+      "supabaseUrl": "",
+      "supabaseAnonKey": ""
+    }
+  }
+}
