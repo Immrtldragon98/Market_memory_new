@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import alerts, journal, memory, watchlist
+from app.api import alerts, journal, market, memory, watchlist
 from app.core.config import settings
 
-app = FastAPI(title="Market Memory API", version="1.0.0")
+app = FastAPI(title="Market Memory API", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,6 +14,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(market.router, prefix="/api", tags=["market"])
 app.include_router(memory.router, prefix="/api", tags=["memory"])
 app.include_router(journal.router, prefix="/api", tags=["journal"])
 app.include_router(watchlist.router, prefix="/api", tags=["watchlist"])
