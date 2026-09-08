@@ -32,6 +32,8 @@ jobs:
           node-version: '22'
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
+      - name: Build web bundle
+        run: npx expo export --platform web
 
   migration:
     runs-on: ubuntu-latest
