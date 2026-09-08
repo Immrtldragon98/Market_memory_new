@@ -1,4 +1,7 @@
 import asyncio
+import logging
+
+from starlette.concurrency import run_in_threadpool
 from datetime import datetime, timezone
 
 from app.core.database import supabase
@@ -10,44 +13,28 @@ def _minute_bucket(now: datetime) -> str:
 
 
 def ensure_asset(asset: dict) -> dict:
-    rows = (
-        supabase.table("market_assets")
-        .select("*")
-        .eq("asset_type", asset["asset_type"])
-        .eq("backend_id", asset["backend_id"])
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if rows:
-        current = rows[0]
-        updates = {}
-        for key in ("symbol", "name", "exchange"):
-            value = asset.get(key)
-            if value is not None and current.get(key) != value:
-                updates[key] = value
-        if updates:
-            supabase.table("market_assets").update(updates).eq("id", current["id"]).execute()
-            current.update(updates)
-        return current
-
-    inserted = supabase.table("market_assets").insert({
-        "symbol": asset["symbol"].upper(),
+    # First writer wins: client-provided labels must not rewrite shared identities.
+    supabase.table("market_assets").upsert({
+        "symbol": asset["symbol"].strip().upper(),
         "name": asset.get("name") or asset["symbol"],
         "asset_type": asset["asset_type"],
         "backend_id": asset["backend_id"],
         "exchange": asset.get("exchange"),
-    }).execute().data or []
-    return inserted[0]
+    }, on_conflict="asset_type,backend_id", ignore_duplicates=True).execute()
+    rows = (supabase.table("market_assets").select("*")
+            .eq("asset_type", asset["asset_type"])
+            .eq("backend_id", asset["backend_id"]).limit(1).execute().data or [])
+    if not rows:
+        raise RuntimeError("Canonical asset could not be resolved")
+    return rows[0]
 
 
-async def sample_asset(asset: dict, user_id: str, context: str) -> dict:
-    canonical = ensure_asset(asset)
+async def sample_asset(asset: dict, user_id: str, context: str, *, canonical: dict | None = None) -> dict:
+    canonical = canonical or await run_in_threadpool(ensure_asset, asset)
     now = datetime.now(timezone.utc)
     bucket_at = _minute_bucket(now)
 
-    rows = (
+    rows = (await run_in_threadpool(lambda: (
         supabase.table("market_price_samples")
         .select("*")
         .eq("asset_id", canonical["id"])
@@ -56,24 +43,24 @@ async def sample_asset(asset: dict, user_id: str, context: str) -> dict:
         .execute()
         .data
         or []
-    )
+    )))
 
     if rows:
         sample = rows[0]
     else:
         quote = await get_quote(canonical["asset_type"], canonical["backend_id"])
         try:
-            inserted = supabase.table("market_price_samples").insert({
+            inserted = await run_in_threadpool(lambda: supabase.table("market_price_samples").insert({
                 "asset_id": canonical["id"],
                 "price": quote["price"],
                 "currency": quote["currency"],
                 "source": quote["source"],
                 "sampled_at": now.isoformat(),
                 "bucket_at": bucket_at,
-            }).execute().data or []
+            }).execute().data or [])
             sample = inserted[0]
         except Exception:
-            rows = (
+            rows = (await run_in_threadpool(lambda: (
                 supabase.table("market_price_samples")
                 .select("*")
                 .eq("asset_id", canonical["id"])
@@ -82,17 +69,17 @@ async def sample_asset(asset: dict, user_id: str, context: str) -> dict:
                 .execute()
                 .data
                 or []
-            )
+            )))
             if not rows:
                 raise
             sample = rows[0]
 
-    mark = supabase.table("user_price_marks").insert({
+    mark = await run_in_threadpool(lambda: supabase.table("user_price_marks").insert({
         "user_id": user_id,
         "asset_id": canonical["id"],
         "price_sample_id": sample["id"],
         "context": context,
-    }).execute().data or []
+    }).execute().data or [])
 
     return {"asset": canonical, "sample": sample, "mark": mark[0] if mark else None}
 
@@ -102,7 +89,7 @@ async def sample_tracked_assets(user_id: str, context: str, max_assets: int = 10
 
     We intentionally cap this list. User lifecycle events must never fan out into unbounded provider calls.
     """
-    journal_rows = (
+    journal_rows = (await run_in_threadpool(lambda: (
         supabase.table("journal_entries")
         .select("asset_id,created_at")
         .eq("user_id", user_id)
@@ -112,7 +99,7 @@ async def sample_tracked_assets(user_id: str, context: str, max_assets: int = 10
         .execute()
         .data
         or []
-    )
+    )))
 
     asset_ids: list[int] = []
     seen: set[int] = set()
@@ -128,14 +115,14 @@ async def sample_tracked_assets(user_id: str, context: str, max_assets: int = 10
     if not asset_ids:
         return []
 
-    asset_rows = (
+    asset_rows = (await run_in_threadpool(lambda: (
         supabase.table("market_assets")
         .select("*")
         .in_("id", asset_ids)
         .execute()
         .data
         or []
-    )
+    )))
     by_id = {row["id"]: row for row in asset_rows}
     ordered_assets = [by_id[asset_id] for asset_id in asset_ids if asset_id in by_id]
 
@@ -143,6 +130,9 @@ async def sample_tracked_assets(user_id: str, context: str, max_assets: int = 10
         *(sample_asset(asset, user_id, context) for asset in ordered_assets),
         return_exceptions=True,
     )
+    failures = sum(isinstance(item, BaseException) for item in results)
+    if failures:
+        logging.getLogger(__name__).warning("Lifecycle capture: %s of %s assets failed", failures, len(results))
     return [item for item in results if isinstance(item, dict)]
 
 

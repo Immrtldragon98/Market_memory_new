@@ -3,7 +3,7 @@ from fastapi import Header, HTTPException, status
 from app.core.database import auth_client
 
 
-async def get_current_user(authorization: str | None = Header(default=None)):
+def get_current_user(authorization: str | None = Header(default=None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
 

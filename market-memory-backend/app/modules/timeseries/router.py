@@ -42,7 +42,7 @@ async def sample_user_tracked_assets(payload: LifecycleSampleRequest, user=Depen
 
 
 @router.get("/assets/{asset_id}/history")
-async def asset_history(
+def asset_history(
     asset_id: int,
     range_key: Literal["1d", "7d", "30d", "90d", "1y", "5y"] = Query(default="7d", alias="range"),
     _user=Depends(get_current_user),

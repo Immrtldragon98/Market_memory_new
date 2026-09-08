@@ -23,7 +23,10 @@ async def search_assets(
     limit: int = Query(default=8, ge=5, le=10),
     _user=Depends(get_current_user),
 ):
-    return await search_market_assets(q, limit=limit)
+    try:
+        return await search_market_assets(q, limit=limit)
+    except LookupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/assets/price")

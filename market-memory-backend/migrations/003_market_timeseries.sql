@@ -1,3 +1,5 @@
+begin;
+
 -- Market Memory v2: canonical assets + deduplicated market price time-series
 
 create table if not exists public.market_assets (
@@ -106,10 +108,10 @@ as $$
   )
   select
     case c.grain
-      when 'hour' then date_trunc('hour', s.sampled_at)
-      when 'day' then date_trunc('day', s.sampled_at)
-      when 'month' then date_trunc('month', s.sampled_at)
-      else date_trunc('year', s.sampled_at)
+      when 'hour' then date_trunc('hour', s.sampled_at, 'UTC')
+      when 'day' then date_trunc('day', s.sampled_at, 'UTC')
+      when 'month' then date_trunc('month', s.sampled_at, 'UTC')
+      else date_trunc('year', s.sampled_at, 'UTC')
     end as period_start,
     avg(s.price) as avg_price,
     min(s.price) as min_price,
@@ -122,3 +124,5 @@ as $$
   group by 1
   order by 1;
 $$;
+
+commit;

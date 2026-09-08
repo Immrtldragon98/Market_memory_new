@@ -15,7 +15,7 @@ def _count(table: str, user_id: str, active_only: bool = False) -> int:
 
 
 @router.get("/account/summary")
-async def account_summary(user=Depends(get_current_user)):
+def account_summary(user=Depends(get_current_user)):
     user_id = str(user.id)
     return {
         "user": {
