@@ -13,6 +13,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - run: pip install -r market-memory-backend/requirements.txt
+      - name: Reliability regression tests
+        working-directory: market-memory-backend
+        run: python -m unittest discover -s tests -v
       - name: Compile backend
         run: python -m compileall market-memory-backend/app market-memory-backend/main.py
 
@@ -26,5 +30,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
+      - name: Build web bundle
+        run: npx expo export --platform web
+
+  migration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: market_memory_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Legacy migration, repeatability, UTC aggregation and constraints
+        env:
+          PGPASSWORD: test
+        run: psql -h localhost -U postgres -d market_memory_test -v ON_ERROR_STOP=1 -f market-memory-backend/tests/migration_smoke.sql

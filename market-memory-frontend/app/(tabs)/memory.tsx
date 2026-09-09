@@ -1,3 +1,4 @@
+import { theme } from '../../src/shared/theme/tokens';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { apiRequest } from '../../src/services/api';
@@ -48,7 +49,7 @@ export default function MemoryScreen(){
     };
   },[items,filtered,selectedSymbol]);
 
-  return <ScrollView style={s.page} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#60a5fa"/>}>
+  return <ScrollView style={s.page} contentContainerStyle={s.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={theme.colors.primary}/>}>
     <Text style={s.kicker}>REVIEW</Text>
     <Text style={s.title}>Memory</Text>
     <Text style={s.sub}>Reconstruct what you saw, recorded, and decided — in the order it actually happened.</Text>
@@ -79,9 +80,9 @@ export default function MemoryScreen(){
 }
 
 const s=StyleSheet.create({
-  page:{flex:1,backgroundColor:'#0f172a'}, content:{padding:24}, kicker:{color:'#60a5fa',fontSize:11,fontWeight:'900'}, title:{color:'#f8fafc',fontSize:30,fontWeight:'900'}, sub:{color:'#94a3b8',marginTop:6,marginBottom:14,lineHeight:20},
-  filters:{gap:8,paddingVertical:4,paddingBottom:14}, filter:{borderWidth:1,borderColor:'#334155',backgroundColor:'#111827',paddingHorizontal:12,paddingVertical:8,borderRadius:999}, filterActive:{borderColor:'#2563eb',backgroundColor:'#172554'}, filterText:{color:'#94a3b8',fontWeight:'700'}, filterTextActive:{color:'#93c5fd'},
-  summaryRow:{flexDirection:'row',gap:10,marginBottom:14}, summaryCard:{flex:1,backgroundColor:'#111827',borderWidth:1,borderColor:'#334155',borderRadius:12,padding:12}, summaryValue:{color:'#f8fafc',fontSize:20,fontWeight:'900'}, summaryLabel:{color:'#64748b',fontSize:11,marginTop:2},
-  reviewBanner:{backgroundColor:'#111827',borderLeftWidth:3,borderLeftColor:'#2563eb',borderRadius:10,padding:14,marginBottom:14}, reviewTitle:{color:'#f8fafc',fontWeight:'900'}, reviewText:{color:'#94a3b8',marginTop:5,lineHeight:19},
-  error:{color:'#fca5a5'}, empty:{color:'#64748b',marginTop:20}, card:{backgroundColor:'#111827',borderWidth:1,borderColor:'#334155',borderRadius:12,padding:16,marginBottom:12}, row:{flexDirection:'row',justifyContent:'space-between',gap:12}, kind:{color:'#60a5fa',fontSize:10,fontWeight:'900'}, date:{color:'#64748b',fontSize:11}, symbol:{color:'#f8fafc',fontSize:20,fontWeight:'900',marginTop:8}, body:{color:'#cbd5e1',marginTop:6,lineHeight:20}, meta:{color:'#a5b4fc',marginTop:9,fontSize:12,fontWeight:'700'}, price:{color:'#94a3b8',marginTop:10,fontSize:12}
+  page:{flex:1,backgroundColor:theme.colors.bg}, content:{padding:16}, kicker:{color:theme.colors.primary,fontSize:11,fontWeight:'900'}, title:{color:theme.colors.text,fontSize:30,fontWeight:'900'}, sub:{color:theme.colors.textMuted,marginTop:6,marginBottom:14,lineHeight:20},
+  filters:{gap:8,paddingVertical:4,paddingBottom:14}, filter:{borderWidth:1,borderColor:theme.colors.border,backgroundColor:theme.colors.panel,paddingHorizontal:12,paddingVertical:8,borderRadius:999}, filterActive:{borderColor:theme.colors.primaryStrong,backgroundColor:'#172554'}, filterText:{color:theme.colors.textMuted,fontWeight:'700'}, filterTextActive:{color:'#93c5fd'},
+  summaryRow:{flexDirection:'row',gap:10,marginBottom:14}, summaryCard:{flex:1,backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:12,padding:12}, summaryValue:{color:theme.colors.text,fontSize:20,fontWeight:'900'}, summaryLabel:{color:theme.colors.textDim,fontSize:11,marginTop:2},
+  reviewBanner:{backgroundColor:theme.colors.panel,borderLeftWidth:3,borderLeftColor:theme.colors.primaryStrong,borderRadius:10,padding:14,marginBottom:14}, reviewTitle:{color:theme.colors.text,fontWeight:'900'}, reviewText:{color:theme.colors.textMuted,marginTop:5,lineHeight:19},
+  error:{color:'#fca5a5'}, empty:{color:theme.colors.textDim,marginTop:20}, card:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:12,padding:16,marginBottom:12}, row:{flexDirection:'row',justifyContent:'space-between',gap:12}, kind:{color:theme.colors.primary,fontSize:10,fontWeight:'900'}, date:{color:theme.colors.textDim,fontSize:11}, symbol:{color:theme.colors.text,fontSize:20,fontWeight:'900',marginTop:8}, body:{color:theme.colors.textMuted,marginTop:6,lineHeight:20}, meta:{color:'#a5b4fc',marginTop:9,fontSize:12,fontWeight:'700'}, price:{color:theme.colors.textMuted,marginTop:10,fontSize:12}
 });

@@ -1,19 +1,19 @@
 import { Tabs } from 'expo-router';
-
-const options = {
-  headerStyle: { backgroundColor: '#0f172a' },
-  headerTintColor: '#f8fafc',
-  tabBarStyle: { backgroundColor: '#0f172a', borderTopColor: '#1e293b' },
-  tabBarActiveTintColor: '#60a5fa',
-  tabBarInactiveTintColor: '#64748b',
-};
+import { theme } from '../../src/shared/theme/tokens';
 
 export default function TabsLayout() {
-  return <Tabs screenOptions={options}>
-    <Tabs.Screen name="market" options={{ title: 'Market' }} />
-    <Tabs.Screen name="memory" options={{ title: 'Memory' }} />
+  return <Tabs screenOptions={{
+    headerStyle: { backgroundColor: theme.colors.bg },
+    headerTintColor: theme.colors.text,
+    tabBarStyle: { backgroundColor: theme.colors.panel, borderTopColor: theme.colors.border },
+    tabBarActiveTintColor: theme.colors.primary,
+    tabBarInactiveTintColor: theme.colors.textMuted,
+  }}>
+    <Tabs.Screen name="home" options={{ title: 'Home' }} />
+    <Tabs.Screen name="market" options={{ title: 'Discover' }} />
     <Tabs.Screen name="journal" options={{ title: 'Journal' }} />
-    <Tabs.Screen name="alerts" options={{ title: 'Alerts' }} />
     <Tabs.Screen name="account" options={{ title: 'Account' }} />
+    <Tabs.Screen name="memory" options={{ title: 'Observations & snapshots', href: null }} />
+    <Tabs.Screen name="alerts" options={{ title: 'Price alerts', href: null }} />
   </Tabs>;
 }
