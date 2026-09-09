@@ -9,6 +9,8 @@ insert into auth.users values ('00000000-0000-0000-0000-000000000001');
 insert into journal_entries(user_id,symbol,title,note) values ('00000000-0000-0000-0000-000000000001','TCS.NS','Legacy thought','Keep the original evidence');
 \ir ../migrations/003_market_timeseries.sql
 \ir ../migrations/003_market_timeseries.sql
+\ir ../migrations/20260908160635_journal_review_loop.sql
+\ir ../migrations/20260908160635_journal_review_loop.sql
 begin;
 set local timezone = 'Asia/Kolkata';
 insert into market_assets(symbol,name,asset_type,backend_id) values ('TCS.NS','TCS','stock','TCS.NS');
@@ -20,6 +22,9 @@ do $$
 declare aid bigint; result record;
 begin
   if not exists(select 1 from journal_entries where title='Legacy thought' and asset_id is null and entry_price_sample_id is null) then raise exception 'Legacy data changed'; end if;
+  if not exists(select 1 from journal_entries where title='Legacy thought' and entry_type='decision' and reviewed_at is null and review_due_on is null) then raise exception 'Review migration changed legacy entries'; end if;
+  update journal_entries set review_due_on='2026-09-09', lesson='New evidence', reviewed_at=now() where title='Legacy thought';
+  if not exists(select 1 from journal_entries where note='Keep the original evidence' and lesson='New evidence') then raise exception 'Original evidence lost'; end if;
   select id into aid from market_assets limit 1;
   select * into result from get_market_price_history(aid,'7d');
   if result.avg_price <> 150 or result.sample_count <> 2 or result.period_start <> date_trunc('day',now(),'UTC') then raise exception 'Aggregation incorrect'; end if;

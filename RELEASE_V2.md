@@ -11,13 +11,14 @@ Product: remember what you thought, what you saw, and what you learned.
 - Migration 003 transaction and explicit UTC aggregation; automated regression and PostgreSQL smoke checks.
 
 ## Remaining release work
-This is a foundation slice, not the completed first release. Structured observation/decision fields, review dates and lessons, journal pagination, asset deep links, data export/deletion and password recovery remain to implement. Home's recent thoughts are not claimed as reviews due.
+This is a foundation slice, not the completed first release. Data export/deletion, password recovery, provider quote timestamps and asset deep links remain to implement. Home now shows up to five due reviews with direct journal links. Journal supports observation/decision types, optional review dates, actions and invalidation evidence, 50-row pages, and completed lessons. Review completion preserves original text; conflicting edits return 409 and identical retries are safe. Dates use the local calendar supplied by the client; API-only callers default to UTC. Reminders are in-app only.
 
 Provider quote timestamps are not persisted yet. Displayed capture times are NOT quote times; all prices remain labelled potentially delayed. Do not claim continuous market history or actual portfolio returns. No historical quote backfill or invented legacy asset mapping.
 
 Provider clients/caches are per-process. Concurrency is bounded, but deployment-wide rate limiting and HTTP client lifecycle pooling remain before multi-instance scaling. Load and real-device background-suspension checks remain required.
 
 ## Migration release gate
+Apply `20260908160635_journal_review_loop.sql` after 003 before deploying this review-loop build. It adds nullable review metadata and indexed due/reviewed lists. Existing entries remain decisions with no due date or lesson; existing ownership RLS remains in force.
 Do not apply to production based solely on unit tests. Rehearse against a disposable Supabase project containing a copy of the existing schema and representative legacy rows. The CI PostgreSQL fixture verifies SQL and RLS flags, not a complete Supabase auth environment.
 
 003 is still an unmerged PR migration. The added transaction/UTC fix affects databases that execute it. If any environment has already applied 003, compare its schema and generate a separate forward migration before deploying; do not assume editing this file updates it.

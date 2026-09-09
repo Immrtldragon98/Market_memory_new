@@ -1,13 +1,15 @@
+import { localDay } from '../journal/reviewDates';
 import { useCallback, useState } from 'react';
 import { Link, useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { apiRequest } from '../../services/api';
 import { theme } from '../../shared/theme/tokens';
 
-type Thought = { id: number; title: string; symbol: string; created_at: string };
+type Thought = { id: number; title: string; symbol: string; created_at: string; review_due_on?: string | null };
 type Watch = { id: number; symbol: string; name: string | null };
 
 export function HomeScreen() {
+  const [due, setDue] = useState<Thought[]>([]);
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [watchlist, setWatchlist] = useState<Watch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,9 +18,9 @@ export function HomeScreen() {
   useFocusEffect(useCallback(() => {
     let active = true;
     setLoading(true); setError('');
-    Promise.all([apiRequest<Thought[]>('/api/journal'), apiRequest<Watch[]>('/api/watchlist')])
-      .then(([entries, watched]) => { if (active) { setThoughts(entries); setWatchlist(watched); } })
-      .catch(e => { if (active) { setThoughts([]); setWatchlist([]); setError(e instanceof Error ? e.message : 'Unable to load your notebook.'); } })
+    Promise.all([apiRequest<Thought[]>('/api/journal'), apiRequest<Watch[]>('/api/watchlist'), apiRequest<Thought[]>(`/api/journal?view=due&as_of=${localDay()}&limit=5`)])
+      .then(([entries, watched, reviews]) => { if (active) { setThoughts(entries); setWatchlist(watched); setDue(reviews); } })
+      .catch(e => { if (active) { setThoughts([]); setWatchlist([]); setDue([]); setError(e instanceof Error ? e.message : 'Unable to load your notebook.'); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [refresh]));
@@ -32,9 +34,11 @@ export function HomeScreen() {
       <Pressable onPress={() => setRefresh(n => n + 1)} style={s.action}><Text style={s.link}>Retry</Text></Pressable>
       <Link href="/(tabs)/account" style={s.link}>Go to account</Link>
     </View> : <>
+      <Text style={s.heading}>Ready to revisit</Text>
+      {!due.length?<Text style={s.body}>No reviews due. Set a date when recording your next thought.</Text>:due.map(thought=><Link key={thought.id} href={{pathname:'/(tabs)/journal',params:{entry:String(thought.id)}}} asChild><Pressable style={s.card}><Text style={s.eyebrow}>{thought.symbol} · Due {thought.review_due_on}</Text><Text style={s.heading}>{thought.title}</Text><Text style={s.link}>Review this thought →</Text></Pressable></Link>)}
       <Text style={s.heading}>Recent thoughts</Text>
       {!thoughts.length ? <Text style={s.body}>Your notebook starts with one thought. Find an asset and record what you expect.</Text> : thoughts.slice(0, 5).map(thought =>
-        <Link key={thought.id} href="/(tabs)/journal" asChild><Pressable style={s.card}>
+        <Link key={thought.id} href={{pathname:'/(tabs)/journal',params:{entry:String(thought.id)}}} asChild><Pressable style={s.card}>
           <Text style={s.eyebrow}>{thought.symbol}</Text><Text style={s.heading}>{thought.title}</Text>
           <Text style={s.body}>{new Date(thought.created_at).toLocaleDateString()} · Revisit in journal</Text>
         </Pressable></Link>)}
