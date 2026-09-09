@@ -1,16 +1,12 @@
-# Python
+# Dependencies and generated builds
+node_modules/
+dist/
+
+# Local configuration and caches
+.env
+.env.local
 __pycache__/
 *.py[cod]
-.venv/
-market-memory-backend/.env
-
-# Node / Expo
-market-memory-frontend/node_modules/
-market-memory-frontend/.expo/
-market-memory-frontend/.env
-
-# OS / editors
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+.pytest_cache/
+.expo/
+.vercel/
