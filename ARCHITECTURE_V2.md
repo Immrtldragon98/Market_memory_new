@@ -93,3 +93,26 @@ Screens compose feature components. They do not contain API/data logic directly.
 **Observe -> Record -> Decide -> Remember -> Review** remains the product loop.
 
 The architecture should allow AI/research/thesis features later, but the core product must remain useful without them.
+# Architecture hardening addendum (September 2026)
+
+The web client remains a static Vercel deployment. The FastAPI backend is a
+portable Docker service with Koyeb as the first deployment target, Oracle Cloud
+VM as the persistent free-tier alternative, and AWS Lambda/API Gateway as an
+HTTP-only fallback.
+
+The reflection assistant uses Groq first and OpenRouter second. Providers never
+receive database credentials or a user's Supabase access token. The API loads a
+bounded, owner-filtered evidence set and sends only that text to the provider.
+Answers must cite journal IDs and cannot modify journal data.
+
+An optional Streamable HTTP MCP resource server exposes read-only journal tools.
+It validates Supabase bearer tokens on every request and derives the database
+owner filter from the verified subject. MCP is disabled unless `MCP_PUBLIC_URL`
+is explicitly configured, and it should not be enabled on Lambda.
+
+Remaining scaling boundary: all backend access currently uses a service-role
+Supabase client and therefore bypasses RLS. Manual `user_id` filters are now
+required at every query, but this is not sufficient as the codebase grows. The
+next security migration should construct a request-scoped Supabase client with
+the user's bearer token for all user-owned data, leaving service-role access in
+small, audited infrastructure adapters only.
