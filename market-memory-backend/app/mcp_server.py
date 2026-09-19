@@ -12,7 +12,7 @@ from pydantic import AnyHttpUrl
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
-from app.core.database import auth_client, supabase
+from app.core.database import auth_client, user_client
 
 
 class SupabaseTokenVerifier(TokenVerifier):
@@ -34,8 +34,8 @@ def _user_id() -> str:
     return access_token.subject
 
 
-def _recent_rows(user_id: str, symbol: str | None, limit: int) -> list[dict[str, Any]]:
-    query = (supabase.table("journal_entries")
+def _recent_rows(token: str, user_id: str, symbol: str | None, limit: int) -> list[dict[str, Any]]:
+    query = (user_client(token).table("journal_entries")
              .select("id,symbol,title,note,confidence,entry_type,decision_action,invalidation,review_due_on,reviewed_at,lesson,created_at")
              .eq("user_id", user_id))
     if symbol:
@@ -43,8 +43,8 @@ def _recent_rows(user_id: str, symbol: str | None, limit: int) -> list[dict[str,
     return query.order("created_at", desc=True).limit(limit).execute().data or []
 
 
-def _due_rows(user_id: str, limit: int) -> list[dict[str, Any]]:
-    return (supabase.table("journal_entries")
+def _due_rows(token: str, user_id: str, limit: int) -> list[dict[str, Any]]:
+    return (user_client(token).table("journal_entries")
             .select("id,symbol,title,note,review_due_on,created_at")
             .eq("user_id", user_id).is_("reviewed_at", "null")
             .lte("review_due_on", date.today().isoformat())
@@ -69,12 +69,14 @@ def build_mcp_server() -> MCPServer | None:
     @server.tool()
     async def list_recent_journal_entries(symbol: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         """List the current user's recent journal entries, optionally for one symbol."""
-        return await run_in_threadpool(_recent_rows, _user_id(), symbol, min(max(limit, 1), 50))
+        token = get_access_token()
+        return await run_in_threadpool(_recent_rows, token.token, _user_id(), symbol, min(max(limit, 1), 50))
 
     @server.tool()
     async def list_due_reviews(limit: int = 20) -> list[dict[str, Any]]:
         """List the current user's incomplete reviews in due-date order."""
-        return await run_in_threadpool(_due_rows, _user_id(), min(max(limit, 1), 50))
+        token = get_access_token()
+        return await run_in_threadpool(_due_rows, token.token, _user_id(), min(max(limit, 1), 50))
 
     return server
 

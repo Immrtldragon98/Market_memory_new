@@ -103,12 +103,12 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
         async def response(provider, question, entries):
             if provider.name == 'groq':
                 raise httpx.TimeoutException('timeout')
-            return 'Evidence is limited.'
+            return 'Evidence is limited.', {'total_tokens': 12}
         with patch.object(assistant.limiter, 'claim', AsyncMock(return_value=True)), \
              patch.object(assistant, '_providers', return_value=providers), \
              patch.object(assistant, 'load_evidence', return_value=[]), \
              patch.object(assistant, '_ask', side_effect=response):
-            result = await assistant.answer_question('owner', 'What did I miss?', None)
+            result = await assistant.answer_question('owner', 'What did I miss?', None, db=Database())
         self.assertEqual(result['provider'], 'openrouter')
         self.assertEqual(result['model'], 'fallback')
 
