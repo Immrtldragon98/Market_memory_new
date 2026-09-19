@@ -12,6 +12,7 @@ export default function TabsLayout() {
     <Tabs.Screen name="home" options={{ title: 'Home' }} />
     <Tabs.Screen name="market" options={{ title: 'Discover' }} />
     <Tabs.Screen name="journal" options={{ title: 'Journal' }} />
+    <Tabs.Screen name="reflect" options={{ title: 'Reflect' }} />
     <Tabs.Screen name="account" options={{ title: 'Account' }} />
     <Tabs.Screen name="memory" options={{ title: 'Observations & snapshots', href: null }} />
     <Tabs.Screen name="alerts" options={{ title: 'Price alerts', href: null }} />

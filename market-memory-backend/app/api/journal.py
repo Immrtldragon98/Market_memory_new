@@ -13,6 +13,10 @@ from app.schemas.journal import JournalCreate, JournalReviewCreate, JournalSched
 router = APIRouter()
 
 
+def _db(user):
+    return getattr(user, "db", supabase)
+
+
 @router.post("/journal", status_code=status.HTTP_201_CREATED)
 async def create_entry(payload: JournalCreate, user=Depends(get_current_user)):
     row = payload.model_dump(mode="json", exclude={"asset_name", "asset_type", "backend_id", "exchange"})
@@ -36,7 +40,7 @@ async def create_entry(payload: JournalCreate, user=Depends(get_current_user)):
             logging.getLogger(__name__).exception("Journal price enrichment failed")
 
     try:
-        data = await run_in_threadpool(lambda: supabase.table("journal_entries").insert(row).execute().data or [])
+        data = await run_in_threadpool(lambda: _db(user).table("journal_entries").insert(row).execute().data or [])
         if not data:
             raise HTTPException(status_code=400, detail="Unable to save journal entry")
         return data[0]
@@ -55,7 +59,7 @@ def list_entries(
     offset: int = Query(default=0, ge=0),
     user=Depends(get_current_user),
 ):
-    query = supabase.table("journal_entries").select("*").eq("user_id", user.id)
+    query = _db(user).table("journal_entries").select("*").eq("user_id", user.id)
     if symbol:
         query = query.eq("symbol", symbol.strip().upper())
     if view == "due":
@@ -70,8 +74,8 @@ def list_entries(
     return query.range(offset, offset + limit - 1).execute().data or []
 
 
-def _owned_entry(entry_id: int, user_id: str) -> dict:
-    rows = (supabase.table("journal_entries").select("*")
+def _owned_entry(db, entry_id: int, user_id: str) -> dict:
+    rows = (db.table("journal_entries").select("*")
             .eq("id", entry_id).eq("user_id", user_id).limit(1).execute().data or [])
     if not rows:
         raise HTTPException(status_code=404, detail="Journal entry not found")
@@ -80,17 +84,18 @@ def _owned_entry(entry_id: int, user_id: str) -> dict:
 
 @router.post("/journal/{entry_id}/review")
 def complete_review(entry_id: int, payload: JournalReviewCreate, user=Depends(get_current_user)):
-    entry = _owned_entry(entry_id, user.id)
+    db = _db(user)
+    entry = _owned_entry(db, entry_id, user.id)
     if entry.get("reviewed_at"):
         if entry.get("lesson") == payload.lesson:
             return entry  # Safe retry after a lost response.
         raise HTTPException(status_code=409, detail="This review has already been completed")
-    rows = (supabase.table("journal_entries").update({
+    rows = (db.table("journal_entries").update({
         "lesson": payload.lesson, "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", entry_id).eq("user_id", user.id).is_("reviewed_at", "null").execute().data or [])
     if not rows:
         # Another device may have completed it between the read and update.
-        current = _owned_entry(entry_id, user.id)
+        current = _owned_entry(db, entry_id, user.id)
         if current.get("lesson") == payload.lesson and current.get("reviewed_at"):
             return current
         raise HTTPException(status_code=409, detail="Review changed on another device; reopen it")
@@ -99,8 +104,9 @@ def complete_review(entry_id: int, payload: JournalReviewCreate, user=Depends(ge
 
 @router.patch("/journal/{entry_id}/schedule")
 def schedule_review(entry_id: int, payload: JournalSchedule, user=Depends(get_current_user)):
-    _owned_entry(entry_id, user.id)
-    rows = (supabase.table("journal_entries").update(payload.model_dump(mode="json"))
+    db = _db(user)
+    _owned_entry(db, entry_id, user.id)
+    rows = (db.table("journal_entries").update(payload.model_dump(mode="json"))
             .eq("id", entry_id).eq("user_id", user.id).is_("reviewed_at", "null").execute().data or [])
     if not rows:
         raise HTTPException(status_code=409, detail="A completed review cannot be rescheduled")
@@ -114,7 +120,7 @@ def review_entry(
     user=Depends(get_current_user),
 ):
     rows = (
-        supabase.table("journal_entries")
+        _db(user).table("journal_entries")
         .select("*")
         .eq("id", entry_id)
         .eq("user_id", user.id)
@@ -130,13 +136,13 @@ def review_entry(
     entry_price = None
     sample_id = entry.get("entry_price_sample_id")
     if sample_id:
-        samples = supabase.table("market_price_samples").select("*").eq("id", sample_id).limit(1).execute().data or []
+        samples = _db(user).table("market_price_samples").select("*").eq("id", sample_id).limit(1).execute().data or []
         entry_price = samples[0] if samples else None
 
     history = get_history(entry["asset_id"], range_key) if entry.get("asset_id") else []
     latest = []
     if entry.get("asset_id"):
-        latest = (supabase.table("market_price_samples").select("*")
+        latest = (_db(user).table("market_price_samples").select("*")
                   .eq("asset_id", entry["asset_id"]).gte("sampled_at", entry["created_at"])
                   .order("sampled_at", desc=True).limit(1).execute().data or [])
     return {
