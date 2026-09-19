@@ -3,6 +3,7 @@ from datetime import date
 import os
 import threading
 import unittest
+import httpx
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -12,6 +13,7 @@ os.environ.setdefault('SUPABASE_SERVICE_ROLE_KEY', 'test-key')
 
 from app.modules.market import service as market
 from app.modules.timeseries import service as timeseries
+from app.modules.assistant import service as assistant
 from app.api import journal
 from app.schemas.journal import JournalCreate, JournalReviewCreate, JournalSchedule
 from fastapi import HTTPException
@@ -83,6 +85,33 @@ class Query:
             return SimpleNamespace(data=result)
 
 class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_assistant_evidence_is_owner_scoped(self):
+        db = Database()
+        db.rows['journal_entries'] = [
+            {'id': 1, 'user_id': 'owner', 'created_at': '2026-09-01'},
+            {'id': 2, 'user_id': 'other', 'created_at': '2026-09-02'},
+        ]
+        with patch.object(assistant, 'supabase', db):
+            rows = assistant.load_evidence('owner', None)
+        self.assertEqual([row['id'] for row in rows], [1])
+
+    async def test_assistant_falls_back_from_groq_to_openrouter(self):
+        providers = [
+            assistant.Provider('groq', 'https://groq.invalid', 'secret', 'primary'),
+            assistant.Provider('openrouter', 'https://openrouter.invalid', 'secret', 'fallback'),
+        ]
+        async def response(provider, question, entries):
+            if provider.name == 'groq':
+                raise httpx.TimeoutException('timeout')
+            return 'Evidence is limited.'
+        with patch.object(assistant.limiter, 'claim', AsyncMock(return_value=True)), \
+             patch.object(assistant, '_providers', return_value=providers), \
+             patch.object(assistant, 'load_evidence', return_value=[]), \
+             patch.object(assistant, '_ask', side_effect=response):
+            result = await assistant.answer_question('owner', 'What did I miss?', None)
+        self.assertEqual(result['provider'], 'openrouter')
+        self.assertEqual(result['model'], 'fallback')
+
     async def test_concurrent_capture_deduplicates_asset_and_sample(self):
         db = Database()
         with patch.object(timeseries, 'supabase', db), patch.object(timeseries, 'get_quote', AsyncMock(return_value={'price': 100, 'currency': 'INR', 'source': 'test'})):
