@@ -143,7 +143,13 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_search_outage_is_not_empty_success(self):
         market._search_cache.clear()
         with patch.object(market, '_search_stocks', AsyncMock(side_effect=TimeoutError)), patch.object(market, '_search_crypto', AsyncMock(side_effect=TimeoutError)):
-            with self.assertRaises(LookupError): await market.search_assets('BTC')
+            with self.assertRaises(LookupError): await market.search_assets('unknown-provider-only-asset')
+
+    async def test_core_catalog_survives_provider_outage(self):
+        market._search_cache.clear()
+        with patch.object(market, '_search_stocks', AsyncMock(side_effect=TimeoutError)), patch.object(market, '_search_crypto', AsyncMock(side_effect=TimeoutError)):
+            results = await market.search_assets('Reliance')
+        self.assertEqual(results[0]['symbol'], 'RELIANCE.NS')
 
     async def test_partial_search_survives_and_is_not_cached(self):
         market._search_cache.clear()

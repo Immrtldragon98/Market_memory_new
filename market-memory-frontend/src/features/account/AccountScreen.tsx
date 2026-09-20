@@ -27,11 +27,13 @@ function friendlyAuthError(message: string) {
   return message;
 }
 
-export function AccountScreen() {
+export function AccountScreen({ recovery = false }: { recovery?: boolean }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [recovering, setRecovering] = useState(recovery || (Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hash.includes('type=recovery')));
+  const [newPassword, setNewPassword] = useState('');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
@@ -51,7 +53,7 @@ export function AccountScreen() {
 
   useEffect(() => {
     void refresh();
-    const { data } = supabase.auth.onAuthStateChange(() => { void refresh(); });
+    const { data } = supabase.auth.onAuthStateChange((event) => { if (event === 'PASSWORD_RECOVERY') setRecovering(true); void refresh(); });
     return () => data.subscription.unsubscribe();
   }, [refresh]);
 
@@ -106,10 +108,30 @@ export function AccountScreen() {
     });
   };
 
+  const updatePassword = async () => {
+    if (newPassword.length < 8) { setNotice({ kind: 'error', text: 'Use at least 8 characters for your new password.' }); return; }
+    await run('update-password', async () => {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setNewPassword(''); setRecovering(false);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') window.history.replaceState({}, '', window.location.pathname);
+      setNotice({ kind: 'success', text: 'Password updated successfully.' });
+    });
+  };
+
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) setNotice({ kind: 'error', text: friendlyAuthError(error.message) });
   };
+
+  if (recovering) {
+    return <ScrollView style={s.page} contentContainerStyle={s.center} keyboardShouldPersistTaps="handled"><View style={s.authCard}>
+      <Text style={s.eyebrow}>ACCOUNT RECOVERY</Text><Text style={s.hero}>Choose a new password.</Text><Text style={s.sub}>Use at least 8 characters. Your recovery link can only be used once.</Text>
+      {notice && <View accessibilityRole="alert" style={[s.notice, notice.kind === 'error' ? s.noticeError : s.noticeSuccess]}><Text style={s.noticeText}>{notice.text}</Text></View>}
+      <Text style={s.label}>New password</Text><TextInput style={s.input} value={newPassword} onChangeText={setNewPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" placeholder="At least 8 characters" placeholderTextColor={theme.colors.textDim}/>
+      <TouchableOpacity style={[s.primary, busyAction !== null && s.disabled]} disabled={busyAction !== null} onPress={updatePassword}><Text style={s.primaryText}>{busyAction === 'update-password' ? 'Updating…' : 'Update password'}</Text></TouchableOpacity>
+    </View></ScrollView>;
+  }
 
   if (!signedIn) {
     const busy = busyAction !== null;
