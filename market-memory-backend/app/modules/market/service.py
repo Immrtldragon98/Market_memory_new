@@ -21,6 +21,26 @@ _quote_cache: OrderedDict = OrderedDict()
 _provider_slots = asyncio.Semaphore(4)
 _quote_locks = [asyncio.Lock() for _ in range(64)]
 
+# A deliberately small, provider-independent catalog keeps discovery useful
+# during Yahoo/CoinGecko throttling and makes common India-first searches fast.
+# Quotes still come from live providers; this is metadata, not cached pricing.
+CORE_ASSETS = [
+    {"symbol": "RELIANCE.NS", "name": "Reliance Industries", "asset_type": "stock", "backend_id": "RELIANCE.NS", "exchange": "NSE"},
+    {"symbol": "TCS.NS", "name": "Tata Consultancy Services", "asset_type": "stock", "backend_id": "TCS.NS", "exchange": "NSE"},
+    {"symbol": "HDFCBANK.NS", "name": "HDFC Bank", "asset_type": "stock", "backend_id": "HDFCBANK.NS", "exchange": "NSE"},
+    {"symbol": "INFY.NS", "name": "Infosys", "asset_type": "stock", "backend_id": "INFY.NS", "exchange": "NSE"},
+    {"symbol": "ICICIBANK.NS", "name": "ICICI Bank", "asset_type": "stock", "backend_id": "ICICIBANK.NS", "exchange": "NSE"},
+    {"symbol": "BHARTIARTL.NS", "name": "Bharti Airtel", "asset_type": "stock", "backend_id": "BHARTIARTL.NS", "exchange": "NSE"},
+    {"symbol": "SBIN.NS", "name": "State Bank of India", "asset_type": "stock", "backend_id": "SBIN.NS", "exchange": "NSE"},
+    {"symbol": "ITC.NS", "name": "ITC", "asset_type": "stock", "backend_id": "ITC.NS", "exchange": "NSE"},
+    {"symbol": "NVDA", "name": "NVIDIA", "asset_type": "stock", "backend_id": "NVDA", "exchange": "NASDAQ"},
+    {"symbol": "AAPL", "name": "Apple", "asset_type": "stock", "backend_id": "AAPL", "exchange": "NASDAQ"},
+    {"symbol": "MSFT", "name": "Microsoft", "asset_type": "stock", "backend_id": "MSFT", "exchange": "NASDAQ"},
+    {"symbol": "BTC", "name": "Bitcoin", "asset_type": "crypto", "backend_id": "bitcoin", "exchange": "Crypto"},
+    {"symbol": "ETH", "name": "Ethereum", "asset_type": "crypto", "backend_id": "ethereum", "exchange": "Crypto"},
+    {"symbol": "SOL", "name": "Solana", "asset_type": "crypto", "backend_id": "solana", "exchange": "Crypto"},
+]
+
 def _cache_put(cache, key, value):
     cache[key] = (time.monotonic(), value)
     cache.move_to_end(key)
@@ -53,6 +73,10 @@ def _score(result: dict, query: str) -> int:
     else:
         rank = 6
     return rank
+
+
+def _search_core(query: str) -> list[dict]:
+    return [asset.copy() for asset in CORE_ASSETS if _score(asset, query) < 6]
 
 
 async def _search_stocks(client: httpx.AsyncClient, query: str) -> list[dict]:
@@ -122,14 +146,15 @@ async def search_assets(query: str, limit: int = 8) -> list[dict]:
             return_exceptions=True,
         )
 
-    if isinstance(stocks, BaseException) and isinstance(crypto, BaseException):
-        raise LookupError("Search providers unavailable; please retry")
+    core = _search_core(query)
+    if isinstance(stocks, BaseException) and isinstance(crypto, BaseException) and not core:
+        raise LookupError("Live market search is temporarily unavailable; try a ticker symbol")
     partial = isinstance(stocks, BaseException) or isinstance(crypto, BaseException)
     stocks = [] if isinstance(stocks, BaseException) else stocks
     crypto = [] if isinstance(crypto, BaseException) else crypto
 
     deduped: dict[tuple[str, str], dict] = {}
-    for result in [*stocks, *crypto]:
+    for result in [*core, *stocks, *crypto]:
         key = (result["asset_type"], result["backend_id"])
         deduped[key] = result
 
