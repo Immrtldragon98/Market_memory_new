@@ -1,12 +1,12 @@
 import { ReviewActions } from './ReviewActions';
 import { localDay, dayAfter, validDay } from './reviewDates';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { apiRequest } from '../../services/api';
 import { theme } from '../../shared/theme/tokens';
+import { AssetSearch, type Asset } from '../market/AssetSearch';
 
-type Asset={symbol:string;name:string;asset_type:'stock'|'crypto';backend_id:string;exchange?:string|null};
 type Entry={id:number;symbol:string;title:string;note:string;confidence:number|null;created_at:string;asset_id?:number|null;entry_price_sample_id?:number|null;entry_type?:'observation'|'decision';decision_action?:string|null;invalidation?:string|null;review_due_on?:string|null;lesson?:string|null;reviewed_at?:string|null};
 type HistoryPoint={period_start:string;avg_price:number;min_price:number;max_price:number;sample_count:number};
 type PriceSample={price:number;currency:string;sampled_at:string};
@@ -26,12 +26,9 @@ export function JournalScreen(){
   const [saving,setSaving]=useState(false);
   const savingRef=useRef(false);
   const [message,setMessage]=useState('');
-  const [searchError,setSearchError]=useState('');
   const [reviewLoading,setReviewLoading]=useState(false);
   const reviewSeq=useRef(0);
   const [entries,setEntries]=useState<Entry[]>([]);
-  const [assetQuery,setAssetQuery]=useState('');
-  const [results,setResults]=useState<Asset[]>([]);
   const [selectedAsset,setSelectedAsset]=useState<Asset|null>(null);
   const [title,setTitle]=useState('');
   const [note,setNote]=useState('');
@@ -39,7 +36,6 @@ export function JournalScreen(){
   const [loading,setLoading]=useState(false);
   const [review,setReview]=useState<Review|null>(null);
   const [range,setRange]=useState<Range>('7d');
-  const searchSeq=useRef(0);
 
   const load=useCallback(async(offset=0)=>{
     const seq=++loadSeq.current;
@@ -65,21 +61,6 @@ export function JournalScreen(){
     }
     return()=>{loadSeq.current++;reviewSeq.current++;};
   },[load,params.entry]));
-
-  useEffect(()=>{
-    const seq=++searchSeq.current;
-    setSearchError('');
-    const q=assetQuery.trim();
-    if(selectedAsset && q===selectedAsset.name)return;
-    if(q.length<2){setResults([]);return;}
-    const timer=setTimeout(async()=>{
-      try{
-        const rows=await apiRequest<Asset[]>(`/api/assets/search?q=${encodeURIComponent(q)}&limit=8`);
-        if(seq===searchSeq.current)setResults(rows.slice(0,8));
-      }catch{if(seq===searchSeq.current){setResults([]);setSearchError('Search unavailable. Please try again.');}}
-    },300);
-    return()=>{clearTimeout(timer);searchSeq.current++;};
-  },[assetQuery,selectedAsset]);
 
   const save=async()=>{
     if(savingRef.current||!selectedAsset||!note.trim())return;
@@ -121,9 +102,7 @@ export function JournalScreen(){
       <Text style={s.sectionTitle}>Record a thought</Text>
       <View style={s.rangeRow}>{(['observation','decision'] as const).map(kind=><Pressable key={kind} accessibilityRole="button" accessibilityState={{selected:entryType===kind}} style={[s.range,entryType===kind&&s.rangeActive]} onPress={()=>setEntryType(kind)}><Text style={s.rangeTextActive}>{kind==='observation'?'Observation':'Decision'}</Text></Pressable>)}</View>
       {entryType==='decision'?<View style={s.rangeRow}>{['buy','sell','hold','wait','avoid'].map(value=><Pressable key={value} accessibilityRole="button" accessibilityState={{selected:action===value}} style={[s.range,action===value&&s.rangeActive]} onPress={()=>setAction(value)}><Text style={s.rangeTextActive}>{value}</Text></Pressable>)}</View>:null}
-      <TextInput style={s.input} value={assetQuery} onChangeText={(v)=>{setAssetQuery(v);setSelectedAsset(null);}} placeholder="Search asset — only top results are shown" placeholderTextColor={theme.colors.textDim}/>
-      {searchError?<Text accessibilityRole="alert" style={s.empty}>{searchError}</Text>:null}
-      {results.length>0?<View style={s.results}>{results.map(asset=><Pressable key={`${asset.asset_type}:${asset.backend_id}`} style={s.result} onPress={()=>{searchSeq.current++;setSelectedAsset(asset);setAssetQuery(asset.name);setResults([]);}}><View><Text style={s.resultSymbol}>{asset.symbol}</Text><Text style={s.resultName}>{asset.name}</Text></View><Text style={s.resultType}>{asset.asset_type.toUpperCase()}</Text></Pressable>)}</View>:null}
+      <View style={s.assetSearch}><AssetSearch selected={selectedAsset} onSelect={setSelectedAsset} onClearSelection={()=>setSelectedAsset(null)} placeholder="Search asset — company, ticker, or crypto" /></View>
       {selectedAsset?<View style={s.selected}><Text style={s.selectedSymbol}>{selectedAsset.symbol}</Text><Text style={s.selectedName}>{selectedAsset.name} · {selectedAsset.exchange||selectedAsset.asset_type}</Text></View>:null}
       <TextInput style={s.input} value={title} onChangeText={setTitle} placeholder="Title (optional)" placeholderTextColor={theme.colors.textDim}/>
       <TextInput style={[s.input,s.note]} value={note} onChangeText={setNote} multiline placeholder="Why? What must happen? What could make you wrong?" placeholderTextColor={theme.colors.textDim}/>
@@ -165,4 +144,4 @@ function formatNumber(v:number){return Number(v).toLocaleString('en-IN',{maximum
 function formatPrice(v:number,currency:string){try{return new Intl.NumberFormat('en-IN',{style:'currency',currency,maximumFractionDigits:v<1?6:2}).format(v);}catch{return `${currency} ${formatNumber(v)}`;}}
 function formatPeriod(v:string,range:Range){const d=new Date(v);return range==='1y'?d.toLocaleDateString(undefined,{month:'short',year:'2-digit'}):range==='5y'?String(d.getFullYear()):d.toLocaleDateString(undefined,{day:'2-digit',month:'short'});}
 
-const s=StyleSheet.create({page:{flex:1,backgroundColor:theme.colors.bg},content:{width:'100%',maxWidth:1120,alignSelf:'center',padding:16},header:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',gap:16,alignItems:'flex-start',marginBottom:18},eyebrow:{color:theme.colors.primary,fontSize:10,fontWeight:'900',letterSpacing:1.1},title:{color:theme.colors.text,fontSize:28,fontWeight:'900',marginTop:4},sub:{color:theme.colors.textMuted,marginTop:7,lineHeight:20,maxWidth:720},count:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.md,paddingHorizontal:18,paddingVertical:12,alignItems:'center'},countValue:{color:theme.colors.text,fontSize:22,fontWeight:'900'},countLabel:{color:theme.colors.textMuted,fontSize:11},compose:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.lg,padding:20},sectionTitle:{color:theme.colors.text,fontSize:18,fontWeight:'900'},input:{backgroundColor:theme.colors.panelElevated,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.sm,padding:14,color:theme.colors.text,marginTop:10},note:{minHeight:110,textAlignVertical:'top'},results:{borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.sm,overflow:'hidden',marginTop:4},result:{padding:12,flexDirection:'row',justifyContent:'space-between',alignItems:'center',borderBottomWidth:1,borderBottomColor:'#17263a',backgroundColor:theme.colors.panelElevated},resultSymbol:{color:theme.colors.primary,fontWeight:'900'},resultName:{color:theme.colors.textMuted,fontSize:12,marginTop:2},resultType:{color:theme.colors.textDim,fontSize:10,fontWeight:'800'},selected:{backgroundColor:'#10284a',borderRadius:theme.radius.sm,padding:12,marginTop:8},selectedSymbol:{color:theme.colors.primary,fontWeight:'900'},selectedName:{color:theme.colors.textMuted,fontSize:12,marginTop:2},row:{flexDirection:'row',flexWrap:'wrap',gap:10,alignItems:'stretch'},confidence:{width:100},primary:{flex:1,backgroundColor:theme.colors.primaryStrong,borderRadius:theme.radius.sm,alignItems:'center',justifyContent:'center',marginTop:10,padding:14},disabled:{opacity:.4},primaryText:{color:'#fff',fontWeight:'900'},reviewCard:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:'#34527a',borderRadius:theme.radius.lg,padding:20,marginTop:16},reviewHeader:{flexDirection:'row',justifyContent:'space-between',gap:12},reviewTitle:{color:theme.colors.text,fontSize:20,fontWeight:'900',marginTop:4},close:{color:theme.colors.textMuted,fontWeight:'800'},rangeRow:{flexDirection:'row',gap:8,marginTop:16,flexWrap:'wrap'},range:{paddingHorizontal:13,paddingVertical:8,borderRadius:20,borderWidth:1,borderColor:theme.colors.border},rangeActive:{backgroundColor:theme.colors.primaryStrong,borderColor:theme.colors.primaryStrong},rangeText:{color:theme.colors.textMuted,fontSize:11,fontWeight:'800'},rangeTextActive:{color:'#fff'},metrics:{flexDirection:'row',gap:10,flexWrap:'wrap',marginTop:16},metric:{flexGrow:1,minWidth:180,backgroundColor:theme.colors.panelElevated,borderRadius:theme.radius.md,padding:16},metricValue:{color:theme.colors.text,fontSize:20,fontWeight:'900'},metricLabel:{color:theme.colors.textMuted,fontSize:11,marginTop:4},good:{color:theme.colors.success},bad:{color:theme.colors.danger},historyHeader:{flexDirection:'row',marginTop:18,paddingBottom:8,borderBottomWidth:1,borderBottomColor:theme.colors.border},historyHead:{flex:1,color:theme.colors.textDim,fontSize:10,fontWeight:'900'},historyRow:{flexDirection:'row',paddingVertical:9,borderBottomWidth:1,borderBottomColor:'#152338'},historyCell:{flex:1,color:theme.colors.textMuted,fontSize:12},empty:{color:theme.colors.textMuted,marginTop:16},listHeader:{flexDirection:'row',flexWrap:'wrap',gap:8,justifyContent:'space-between',alignItems:'baseline',marginTop:24,marginBottom:10},muted:{color:theme.colors.textDim,fontSize:11},entryCard:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.md,padding:16,marginBottom:10},entryTop:{flexDirection:'row',justifyContent:'space-between'},entrySymbol:{color:theme.colors.primary,fontWeight:'900'},entryDate:{color:theme.colors.textDim,fontSize:11},entryTitle:{color:theme.colors.text,fontSize:17,fontWeight:'900',marginTop:8},entryNote:{color:theme.colors.textMuted,lineHeight:19,marginTop:5},entryBottom:{flexDirection:'row',justifyContent:'space-between',marginTop:12},link:{color:theme.colors.primary,fontSize:11,fontWeight:'800'}});
+const s=StyleSheet.create({page:{flex:1,backgroundColor:theme.colors.bg},content:{width:'100%',maxWidth:1120,alignSelf:'center',padding:16},header:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',gap:16,alignItems:'flex-start',marginBottom:18},eyebrow:{color:theme.colors.primary,fontSize:10,fontWeight:'900',letterSpacing:1.1},title:{color:theme.colors.text,fontSize:28,fontWeight:'900',marginTop:4},sub:{color:theme.colors.textMuted,marginTop:7,lineHeight:20,maxWidth:720},count:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.md,paddingHorizontal:18,paddingVertical:12,alignItems:'center'},countValue:{color:theme.colors.text,fontSize:22,fontWeight:'900'},countLabel:{color:theme.colors.textMuted,fontSize:11},compose:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.lg,padding:20},sectionTitle:{color:theme.colors.text,fontSize:18,fontWeight:'900'},assetSearch:{marginTop:10},input:{backgroundColor:theme.colors.panelElevated,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.sm,padding:14,color:theme.colors.text,marginTop:10},note:{minHeight:110,textAlignVertical:'top'},selected:{backgroundColor:'#10284a',borderRadius:theme.radius.sm,padding:12,marginTop:8},selectedSymbol:{color:theme.colors.primary,fontWeight:'900'},selectedName:{color:theme.colors.textMuted,fontSize:12,marginTop:2},row:{flexDirection:'row',flexWrap:'wrap',gap:10,alignItems:'stretch'},confidence:{width:100},primary:{flex:1,backgroundColor:theme.colors.primaryStrong,borderRadius:theme.radius.sm,alignItems:'center',justifyContent:'center',marginTop:10,padding:14},disabled:{opacity:.4},primaryText:{color:'#fff',fontWeight:'900'},reviewCard:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:'#34527a',borderRadius:theme.radius.lg,padding:20,marginTop:16},reviewHeader:{flexDirection:'row',justifyContent:'space-between',gap:12},reviewTitle:{color:theme.colors.text,fontSize:20,fontWeight:'900',marginTop:4},close:{color:theme.colors.textMuted,fontWeight:'800'},rangeRow:{flexDirection:'row',gap:8,marginTop:16,flexWrap:'wrap'},range:{paddingHorizontal:13,paddingVertical:8,borderRadius:20,borderWidth:1,borderColor:theme.colors.border},rangeActive:{backgroundColor:theme.colors.primaryStrong,borderColor:theme.colors.primaryStrong},rangeText:{color:theme.colors.textMuted,fontSize:11,fontWeight:'800'},rangeTextActive:{color:'#fff'},metrics:{flexDirection:'row',gap:10,flexWrap:'wrap',marginTop:16},metric:{flexGrow:1,minWidth:180,backgroundColor:theme.colors.panelElevated,borderRadius:theme.radius.md,padding:16},metricValue:{color:theme.colors.text,fontSize:20,fontWeight:'900'},metricLabel:{color:theme.colors.textMuted,fontSize:11,marginTop:4},good:{color:theme.colors.success},bad:{color:theme.colors.danger},historyHeader:{flexDirection:'row',marginTop:18,paddingBottom:8,borderBottomWidth:1,borderBottomColor:theme.colors.border},historyHead:{flex:1,color:theme.colors.textDim,fontSize:10,fontWeight:'900'},historyRow:{flexDirection:'row',paddingVertical:9,borderBottomWidth:1,borderBottomColor:'#152338'},historyCell:{flex:1,color:theme.colors.textMuted,fontSize:12},empty:{color:theme.colors.textMuted,marginTop:16},listHeader:{flexDirection:'row',flexWrap:'wrap',gap:8,justifyContent:'space-between',alignItems:'baseline',marginTop:24,marginBottom:10},muted:{color:theme.colors.textDim,fontSize:11},entryCard:{backgroundColor:theme.colors.panel,borderWidth:1,borderColor:theme.colors.border,borderRadius:theme.radius.md,padding:16,marginBottom:10},entryTop:{flexDirection:'row',justifyContent:'space-between'},entrySymbol:{color:theme.colors.primary,fontWeight:'900'},entryDate:{color:theme.colors.textDim,fontSize:11},entryTitle:{color:theme.colors.text,fontSize:17,fontWeight:'900',marginTop:8},entryNote:{color:theme.colors.textMuted,lineHeight:19,marginTop:5},entryBottom:{flexDirection:'row',justifyContent:'space-between',marginTop:12},link:{color:theme.colors.primary,fontSize:11,fontWeight:'800'}});
