@@ -1,0 +1,130 @@
+name: Deploy API to AWS Lambda
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: market-memory-production-api
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  FUNCTION_NAME: market-memory-api
+
+jobs:
+  test-build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test backend
+        working-directory: market-memory-backend
+        env:
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_ANON_KEY: test-key
+          SUPABASE_SERVICE_ROLE_KEY: test-key
+        run: |
+          pip install -r requirements.txt
+          python -m unittest discover -s tests -v
+
+      - name: Build Lambda ZIP
+        working-directory: market-memory-backend
+        run: |
+          mkdir -p package
+          pip install --no-compile --target package -r requirements.txt
+          cp -R app main.py lambda_handler.py package/
+          find package -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find package -type d \( -name tests -o -name test \) -prune -exec rm -rf {} +
+          cd package
+          zip -q -r ../function.zip .
+          cd ..
+          test "$(stat -c%s function.zip)" -lt 52428800
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create or update function
+        working-directory: market-memory-backend
+        env:
+          LAMBDA_ROLE_ARN: ${{ vars.AWS_LAMBDA_ROLE_ARN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          WEB_ORIGIN: ${{ vars.WEB_ORIGIN }}
+        run: |
+          if aws lambda get-function --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+            aws lambda update-function-code --function-name "$FUNCTION_NAME" --zip-file fileb://function.zip >/dev/null
+            aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+          else
+            aws lambda create-function \
+              --function-name "$FUNCTION_NAME" \
+              --runtime python3.12 \
+              --architectures x86_64 \
+              --handler lambda_handler.handler \
+              --role "$LAMBDA_ROLE_ARN" \
+              --zip-file fileb://function.zip \
+              --memory-size 512 \
+              --timeout 30 >/dev/null
+            aws lambda wait function-active --function-name "$FUNCTION_NAME"
+          fi
+
+          jq -n \
+            --arg url "$SUPABASE_URL" \
+            --arg anon "$SUPABASE_ANON_KEY" \
+            --arg service "$SUPABASE_SERVICE_ROLE_KEY" \
+            --arg groq "$GROQ_API_KEY" \
+            --arg openrouter "$OPENROUTER_API_KEY" \
+            --arg origin "$WEB_ORIGIN" \
+            '{Variables:{SUPABASE_URL:$url,SUPABASE_ANON_KEY:$anon,SUPABASE_SERVICE_ROLE_KEY:$service,GROQ_API_KEY:$groq,OPENROUTER_API_KEY:$openrouter,CORS_ORIGINS:$origin,AI_REQUESTS_PER_MINUTE:"6",AI_CONTEXT_ENTRIES:"20"}}' > lambda-env.json
+
+          aws lambda update-function-configuration \
+            --function-name "$FUNCTION_NAME" \
+            --memory-size 512 \
+            --timeout 30 \
+            --reserved-concurrent-executions 2 \
+            --environment file://lambda-env.json >/dev/null
+          rm lambda-env.json
+          aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+
+      - name: Create public HTTPS Function URL
+        run: |
+          jq -n --arg origin "${{ vars.WEB_ORIGIN }}" \
+            '{AllowOrigins:[$origin],AllowMethods:["GET","POST","PATCH","DELETE","OPTIONS"],AllowHeaders:["authorization","content-type"],MaxAge:86400}' > cors.json
+          if aws lambda get-function-url-config --function-name "$FUNCTION_NAME" >/dev/null 2>&1; then
+            aws lambda update-function-url-config \
+              --function-name "$FUNCTION_NAME" \
+              --auth-type NONE \
+              --cors file://cors.json >/dev/null
+          else
+            aws lambda create-function-url-config \
+              --function-name "$FUNCTION_NAME" \
+              --auth-type NONE \
+              --cors file://cors.json >/dev/null
+          fi
+          rm cors.json
+
+          aws lambda add-permission --function-name "$FUNCTION_NAME" \
+            --statement-id FunctionURLAllowPublicAccess \
+            --action lambda:InvokeFunctionUrl --principal '*' \
+            --function-url-auth-type NONE >/dev/null 2>&1 || true
+          aws lambda add-permission --function-name "$FUNCTION_NAME" \
+            --statement-id FunctionURLAllowPublicInvoke \
+            --action lambda:InvokeFunction --principal '*' \
+            --invoked-via-function-url >/dev/null 2>&1 || true
+
+          URL=$(aws lambda get-function-url-config --function-name "$FUNCTION_NAME" --query FunctionUrl --output text)
+          echo "API URL: $URL" >> "$GITHUB_STEP_SUMMARY"
+          curl --fail --retry 5 --retry-delay 3 "${URL}health/live"
