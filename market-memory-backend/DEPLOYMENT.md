@@ -3,7 +3,32 @@
 The backend ships as one portable container. Keep the Vercel deployment for the
 static web app and point `EXPO_PUBLIC_API_URL` at this API.
 
-## Preferred: Koyeb
+## Selected free path: AWS Lambda Function URL
+
+The repository includes `.github/workflows/deploy-aws-lambda.yml`. It builds a
+direct Lambda ZIP on GitHub Actions, deploys with short-lived GitHub OIDC
+credentials, creates a public HTTPS Function URL, caps concurrency at two, and
+smoke-tests `/health/live`. It does not require API Gateway, ECR, or a permanent
+AWS access key.
+
+One-time AWS setup:
+
+1. Create a Lambda execution role with `AWSLambdaBasicExecutionRole`.
+2. Create a GitHub OIDC deployment role restricted to this repository and the
+   `main` branch. Grant it only the Lambda read/update/create, function URL,
+   permission-policy, and `iam:PassRole` actions needed for the execution role.
+3. Add GitHub repository variables `AWS_DEPLOY_ROLE_ARN`,
+   `AWS_LAMBDA_ROLE_ARN`, and
+   `WEB_ORIGIN=https://market-memory-web-immrtldragon931-2094.vercel.app`.
+4. Add GitHub Actions secrets `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+   `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, and `OPENROUTER_API_KEY`.
+5. Run **Deploy API to AWS Lambda** manually. Copy its API URL into the Vercel
+   web project's `EXPO_PUBLIC_API_URL`, then redeploy the web project.
+
+Keep `MCP_PUBLIC_URL` unset. Lambda hosts the REST assistant; its read-only MCP
+surface requires a stateful container host and remains disabled here.
+
+## Alternative: Koyeb
 
 Create a Web Service from this GitHub repository, choose Docker, and set the
 root directory to `market-memory-backend`. The container listens on `PORT` and
@@ -25,12 +50,10 @@ container behind Caddy or another TLS reverse proxy. Persist secrets in a
 root-readable environment file outside the repository. Configure automatic OS
 security updates and container restarts.
 
-## AWS Lambda + API Gateway
+## AWS Lambda + API Gateway (not selected)
 
-Use `lambda_handler.handler` as the entry point with a Python 3.12 deployment
-package or container image. The normal REST API and assistant endpoint work via
-Mangum. Keep `MCP_PUBLIC_URL` unset: stateful Streamable HTTP MCP sessions are a
-poor fit for independently scaled Lambda invocations.
+API Gateway is unnecessary for this lightweight release because the Lambda
+Function URL provides the required public HTTPS endpoint directly.
 
 ## AI behavior
 
