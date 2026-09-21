@@ -1,60 +1,33 @@
 import { localDay } from '../journal/reviewDates';
-import { useCallback, useState } from 'react';
-import { Link, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { apiRequest } from '../../services/api';
 import { theme } from '../../shared/theme/tokens';
+import { EmptyState, MemoryCard, type MemoryCardData, Page, PageIntro, PrimaryAction, SectionHeading, formatPrice } from '../../shared/ui/NotebookUI';
 
-type Thought = { id: number; title: string; symbol: string; created_at: string; review_due_on?: string | null };
-type Watch = { id: number; symbol: string; name: string | null };
+type Thought={id:number;title:string;note:string;symbol:string;confidence:number|null;expectation?:'bullish'|'bearish'|'neutral'|null;created_at:string;review_due_on?:string|null;reviewed_at?:string|null;lesson?:string|null};
+type Watch={id:number;symbol:string;name:string|null;asset_type:'stock'|'crypto';backend_id:string|null};
+type Quote={price:number;currency:string;source:string};
+type WatchContext=Watch&{quote:Quote|null;lastThought?:Thought};
+const toCard=(entry:Thought):MemoryCardData=>({id:entry.id,symbol:entry.symbol,title:entry.title,thought:entry.note,recordedAt:entry.created_at,expectation:entry.expectation,reviewDueOn:entry.review_due_on,reviewedAt:entry.reviewed_at,lesson:entry.lesson,confidence:entry.confidence});
 
-export function HomeScreen() {
-  const [due, setDue] = useState<Thought[]>([]);
-  const [thoughts, setThoughts] = useState<Thought[]>([]);
-  const [watchlist, setWatchlist] = useState<Watch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [refresh, setRefresh] = useState(0);
-  useFocusEffect(useCallback(() => {
-    let active = true;
-    setLoading(true); setError('');
-    Promise.all([apiRequest<Thought[]>('/api/journal'), apiRequest<Watch[]>('/api/watchlist'), apiRequest<Thought[]>(`/api/journal?view=due&as_of=${localDay()}&limit=5`)])
-      .then(([entries, watched, reviews]) => { if (active) { setThoughts(entries); setWatchlist(watched); setDue(reviews); } })
-      .catch(e => { if (active) { setThoughts([]); setWatchlist([]); setDue([]); setError(e instanceof Error ? e.message : 'Unable to load your notebook.'); } })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [refresh]));
-  return <ScrollView style={s.page} contentContainerStyle={s.content}>
-    <Text style={s.eyebrow}>YOUR MARKET NOTEBOOK</Text>
-    <Text style={s.title}>Keep your thinking in view.</Text>
-    <Text style={s.body}>Remember what you thought, what you saw, and what you learned.</Text>
-    <Link href="/(tabs)/journal" asChild><Pressable style={s.button}><Text style={s.buttonText}>Open journal</Text></Pressable></Link>
-    {loading ? <ActivityIndicator color={theme.colors.primary} /> : error ? <View style={s.card}>
-      <Text accessibilityRole="alert" style={s.body}>{error}</Text>
-      <Pressable onPress={() => setRefresh(n => n + 1)} style={s.action}><Text style={s.link}>Retry</Text></Pressable>
-      <Link href="/(tabs)/account" style={s.link}>Go to account</Link>
-    </View> : <>
-      <Text style={s.heading}>Ready to revisit</Text>
-      {!due.length?<Text style={s.body}>No reviews due. Set a date when recording your next thought.</Text>:due.map(thought=><Link key={thought.id} href={{pathname:'/(tabs)/journal',params:{entry:String(thought.id)}}} asChild><Pressable style={s.card}><Text style={s.eyebrow}>{thought.symbol} · Due {thought.review_due_on}</Text><Text style={s.heading}>{thought.title}</Text><Text style={s.link}>Review this thought →</Text></Pressable></Link>)}
-      <Text style={s.heading}>Recent thoughts</Text>
-      {!thoughts.length ? <Text style={s.body}>Your notebook starts with one thought. Find an asset and record what you expect.</Text> : thoughts.slice(0, 5).map(thought =>
-        <Link key={thought.id} href={{pathname:'/(tabs)/journal',params:{entry:String(thought.id)}}} asChild><Pressable style={s.card}>
-          <Text style={s.eyebrow}>{thought.symbol}</Text><Text style={s.heading}>{thought.title}</Text>
-          <Text style={s.body}>{new Date(thought.created_at).toLocaleDateString()} · Revisit in journal</Text>
-        </Pressable></Link>)}
-      <Text style={s.heading}>Your watchlist</Text>
-      {!watchlist.length ? <Text style={s.body}>Save assets in Discover to keep them close.</Text> : watchlist.slice(0, 8).map(item =>
-        <View key={item.id} style={s.card}><Text style={s.eyebrow}>{item.symbol}</Text><Text style={s.body}>{item.name || item.symbol}</Text></View>)}
-      <Link href="/(tabs)/market" style={s.link}>Explore assets →</Link>
+export function HomeScreen(){
+  const router=useRouter();
+  const [due,setDue]=useState<Thought[]>([]);const [thoughts,setThoughts]=useState<Thought[]>([]);const [watchlist,setWatchlist]=useState<WatchContext[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [refresh,setRefresh]=useState(0);
+  useFocusEffect(useCallback(()=>{let active=true;setLoading(true);setError('');Promise.all([apiRequest<Thought[]>('/api/journal?limit=20'),apiRequest<Watch[]>('/api/watchlist'),apiRequest<Thought[]>(`/api/journal?view=due&as_of=${localDay()}&limit=5`)]).then(async([entries,watched,reviews])=>{const contexts=await Promise.all(watched.slice(0,8).map(async item=>{let quote:Quote|null=null;try{quote=await apiRequest<Quote>(`/api/assets/price?asset_type=${item.asset_type}&backend_id=${encodeURIComponent(item.backend_id||item.symbol)}`);}catch{}return{...item,quote,lastThought:entries.find(entry=>entry.symbol===item.symbol)};}));if(active){setThoughts(entries);setWatchlist(contexts);setDue(reviews);}}).catch(e=>{if(active){setThoughts([]);setWatchlist([]);setDue([]);setError(e instanceof Error?e.message:'Unable to load your notebook.');}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[refresh]));
+  const greeting=useMemo(()=>{const hour=new Date().getHours();return hour<12?'Good morning.':hour<18?'Good afternoon.':'Good evening.';},[]);
+  return <ScrollView style={s.screen} contentContainerStyle={s.scroll}><Page wide>
+    <PageIntro eyebrow="Market Memory" title={greeting} subtitle="Keep your thinking in view." action={<PrimaryAction label="＋ Record thought" href="/(tabs)/market"/>}/>
+    {loading?<ActivityIndicator color={theme.colors.accent}/>:error?<View style={s.error}><Text accessibilityRole="alert" style={s.muted}>{error}</Text><Pressable onPress={()=>setRefresh(n=>n+1)} style={s.retry}><Text style={s.link}>Try again</Text></Pressable></View>:<>
+      <SectionHeading title="To review" detail={due.length?`${due.length} ${due.length===1?'memory':'memories'} waiting`:'You are up to date'}/>
+      {!due.length?<EmptyState title="Nothing to review." body="Your next review will appear here when one of your memories reaches its review date." action="Record a thought" href="/(tabs)/market"/>:due.map(entry=><MemoryCard key={entry.id} compact item={toCard(entry)} onPress={()=>router.push({pathname:'/(tabs)/journal',params:{entry:String(entry.id)}})}/>)}
+      <SectionHeading title="Recent memories" detail="Your original words, preserved"/>
+      {!thoughts.length?<EmptyState title="No memories yet." body="Your notebook starts with one thought. Choose an asset and record what you expect." action="Record your first thought" href="/(tabs)/market"/>:thoughts.slice(0,5).map(entry=><MemoryCard key={entry.id} compact item={toCard(entry)} onPress={()=>router.push({pathname:'/(tabs)/journal',params:{entry:String(entry.id)}})}/>)}
+      <SectionHeading title="Watchlist" detail="Markets connected to your thinking"/>
+      {!watchlist.length?<EmptyState title="No watched markets." body="Save an asset while recording a thought to keep its context close." action="Choose an asset" href="/(tabs)/market"/>:<View style={s.watchGrid}>{watchlist.map(item=><Pressable key={item.id} style={({pressed})=>[s.watch,pressed&&s.pressed]} onPress={()=>item.lastThought?router.push({pathname:'/(tabs)/journal',params:{entry:String(item.lastThought.id)}}):router.push('/(tabs)/market')}><View style={s.watchTop}><View><Text style={s.watchSymbol}>{item.symbol}</Text><Text style={s.watchName}>{item.name||item.symbol}</Text></View><Text style={s.watchPrice}>{item.quote?formatPrice(item.quote.price,item.quote.currency):'—'}</Text></View><Text style={s.lastLabel}>{item.lastThought?`Last thought · ${new Date(item.lastThought.created_at).toLocaleDateString(undefined,{day:'numeric',month:'short'})}`:'No thought recorded yet'}</Text><Text style={s.lastThought} numberOfLines={2}>{item.lastThought?`“${item.lastThought.note}”`:'Record what you are watching →'}</Text></Pressable>)}</View>}
+      <View style={s.utilities}><Link href="/(tabs)/memory" style={s.utility}>Asset timelines</Link><Link href="/(tabs)/alerts" style={s.utility}>Remembered price levels</Link></View>
     </>}
-    <View style={s.footer}><Link href="/(tabs)/memory" style={s.link}>Observations & snapshots</Link><Link href="/(tabs)/alerts" style={s.link}>Price alerts</Link></View>
-  </ScrollView>;
+  </Page></ScrollView>;
 }
-const s = StyleSheet.create({
-  page: { flex: 1, backgroundColor: theme.colors.bg }, content: { padding: 16, width: '100%', maxWidth: 960, alignSelf: 'center', gap: 12 },
-  eyebrow: { color: theme.colors.primary, fontSize: 12, fontWeight: '700' }, title: { color: theme.colors.text, fontSize: 28, fontWeight: '700' },
-  body: { color: theme.colors.textMuted, fontSize: 16, lineHeight: 24 }, heading: { color: theme.colors.text, fontSize: 18, fontWeight: '700', marginTop: 8 },
-  card: { padding: 16, borderRadius: 12, backgroundColor: theme.colors.panel, borderColor: theme.colors.border, borderWidth: 1, gap: 6 },
-  button: { padding: 16, minHeight: 44, backgroundColor: theme.colors.primaryStrong, borderRadius: 12, alignSelf: 'flex-start' }, buttonText: { color: '#fff', fontWeight: '700' },
-  link: { color: theme.colors.primary, fontSize: 16, paddingVertical: 12 }, action: { minHeight: 44 }, footer: { marginTop: 20, gap: 8 },
-});
+const s=StyleSheet.create({screen:{flex:1,backgroundColor:theme.colors.bg},scroll:{minHeight:'100%'},error:{borderTopWidth:1,borderBottomWidth:1,borderColor:theme.colors.borderSubtle,paddingVertical:theme.space.lg},muted:{...theme.type.body,color:theme.colors.textMuted},retry:{minHeight:44,justifyContent:'center'},link:{color:theme.colors.accent},watchGrid:{flexDirection:'row',flexWrap:'wrap',gap:theme.space.sm},watch:{flexGrow:1,flexBasis:310,minWidth:270,backgroundColor:theme.colors.surface,borderWidth:1,borderColor:theme.colors.borderSubtle,borderRadius:theme.radius.md,padding:theme.space.md},pressed:{opacity:.72},watchTop:{flexDirection:'row',justifyContent:'space-between',gap:theme.space.sm},watchSymbol:{...theme.type.asset,color:theme.colors.text},watchName:{...theme.type.caption,color:theme.colors.textMuted,marginTop:2},watchPrice:{...theme.type.marketValue,color:theme.colors.text},lastLabel:{...theme.type.metadata,color:theme.colors.textDim,marginTop:theme.space.lg},lastThought:{...theme.type.body,color:theme.colors.textSecondary,marginTop:4},utilities:{flexDirection:'row',flexWrap:'wrap',gap:theme.space.lg,borderTopWidth:1,borderTopColor:theme.colors.borderSubtle,marginTop:theme.space.xl,paddingTop:theme.space.lg},utility:{color:theme.colors.textMuted,fontSize:13,paddingVertical:10}});
