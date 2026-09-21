@@ -87,16 +87,19 @@ def complete_review(entry_id: int, payload: JournalReviewCreate, user=Depends(ge
     db = _db(user)
     entry = _owned_entry(db, entry_id, user.id)
     if entry.get("reviewed_at"):
-        if entry.get("lesson") == payload.lesson:
+        if entry.get("lesson") == payload.lesson and entry.get("review_outcome") == payload.outcome:
             return entry  # Safe retry after a lost response.
         raise HTTPException(status_code=409, detail="This review has already been completed")
     rows = (db.table("journal_entries").update({
-        "lesson": payload.lesson, "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "lesson": payload.lesson, "review_outcome": payload.outcome,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", entry_id).eq("user_id", user.id).is_("reviewed_at", "null").execute().data or [])
     if not rows:
         # Another device may have completed it between the read and update.
         current = _owned_entry(db, entry_id, user.id)
-        if current.get("lesson") == payload.lesson and current.get("reviewed_at"):
+        if (current.get("lesson") == payload.lesson
+                and current.get("review_outcome") == payload.outcome
+                and current.get("reviewed_at")):
             return current
         raise HTTPException(status_code=409, detail="Review changed on another device; reopen it")
     return rows[0]
