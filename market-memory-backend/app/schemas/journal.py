@@ -13,6 +13,7 @@ class JournalCreate(BaseModel):
     mistake: bool = False
     entry_type: Literal["observation", "decision"] = "decision"
     decision_action: Literal["buy", "sell", "hold", "wait", "avoid"] | None = None
+    expectation: Literal["bullish", "bearish", "neutral"] | None = None
     invalidation: str | None = Field(default=None, max_length=2000)
     review_due_on: date | None = None
 
@@ -34,6 +35,7 @@ class JournalCreate(BaseModel):
 class JournalReviewCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lesson: str = Field(min_length=1, max_length=5000)
+    outcome: Literal["yes", "partially", "no"] | None = None
 
     @field_validator("lesson")
     @classmethod
