@@ -13,6 +13,7 @@ YAHOO_SEARCH = "https://query1.finance.yahoo.com/v1/finance/search"
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart"
 COINGECKO_SEARCH = "https://api.coingecko.com/api/v3/search"
 COINGECKO_PRICE = "https://api.coingecko.com/api/v3/simple/price"
+COINGECKO_MARKETS = "https://api.coingecko.com/api/v3/coins/markets"
 
 _SEARCH_TTL_SECONDS = 30.0
 _QUOTE_TTL_SECONDS = 15.0
@@ -168,6 +169,35 @@ async def get_quote(asset_type: AssetType, backend_id: str) -> dict:
     # Fixed lock stripes bound memory and collapse bursts for the same asset.
     async with _quote_locks[hash((asset_type, backend_id)) % len(_quote_locks)]:
         return await _get_quote(asset_type, backend_id)
+
+
+async def get_crypto_context(backend_id: str) -> dict:
+    """Return a compact, timestamped market snapshot suitable for AI context."""
+    timeout = httpx.Timeout(6.0)
+    headers = {"User-Agent": "MarketMemory/2.0"}
+    async with _provider_slots, httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
+        response = await client.get(COINGECKO_MARKETS, params={
+            "vs_currency": "usd", "ids": backend_id, "price_change_percentage": "24h",
+            "sparkline": "false", "locale": "en",
+        })
+        response.raise_for_status()
+        rows = response.json()
+    if not rows:
+        raise LookupError("Crypto market context unavailable")
+    row = rows[0]
+    return {
+        "symbol": str(row.get("symbol") or "").upper(),
+        "name": row.get("name"),
+        "price_usd": row.get("current_price"),
+        "change_24h_pct": row.get("price_change_percentage_24h"),
+        "high_24h_usd": row.get("high_24h"),
+        "low_24h_usd": row.get("low_24h"),
+        "volume_24h_usd": row.get("total_volume"),
+        "market_cap_usd": row.get("market_cap"),
+        "market_cap_rank": row.get("market_cap_rank"),
+        "as_of": row.get("last_updated"),
+        "source": "CoinGecko",
+    }
 
 
 async def _get_quote(asset_type: AssetType, backend_id: str) -> dict:
