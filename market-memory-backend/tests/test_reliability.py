@@ -100,7 +100,7 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
             assistant.Provider('groq', 'https://groq.invalid', 'secret', 'primary'),
             assistant.Provider('openrouter', 'https://openrouter.invalid', 'secret', 'fallback'),
         ]
-        async def response(provider, question, entries):
+        async def response(provider, question, entries, **_kwargs):
             if provider.name == 'groq':
                 raise httpx.TimeoutException('timeout')
             return 'Evidence is limited.', {'total_tokens': 12}
@@ -111,6 +111,31 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
             result = await assistant.answer_question('owner', 'What did I miss?', None, db=Database())
         self.assertEqual(result['provider'], 'openrouter')
         self.assertEqual(result['model'], 'fallback')
+
+    async def test_crypto_assistant_keeps_working_when_market_context_fails(self):
+        provider = assistant.Provider('groq', 'https://groq.invalid', 'secret', 'primary')
+        with patch.object(assistant.limiter, 'claim', AsyncMock(return_value=True)), \
+             patch.object(assistant, '_providers', return_value=[provider]), \
+             patch.object(assistant, 'load_evidence', return_value=[]), \
+             patch.object(assistant, 'get_crypto_context', AsyncMock(side_effect=LookupError('down'))), \
+             patch.object(assistant, '_ask', AsyncMock(return_value=('Ask what invalidates the thesis.', {}))) as ask:
+            result = await assistant.answer_question('owner', 'Challenge it', 'BTC', db=Database(), mode='thesis_challenge', asset_type='crypto', backend_id='bitcoin')
+        self.assertIsNone(result['market_context'])
+        self.assertEqual(result['mode'], 'thesis_challenge')
+        self.assertEqual(result['evidence_count'], 0)
+        self.assertIsNone(ask.await_args.kwargs['market_context'])
+
+    async def test_crypto_context_is_passed_to_model(self):
+        provider = assistant.Provider('groq', 'https://groq.invalid', 'secret', 'primary')
+        snapshot = {'symbol': 'BTC', 'price_usd': 100000, 'source': 'CoinGecko'}
+        with patch.object(assistant.limiter, 'claim', AsyncMock(return_value=True)), \
+             patch.object(assistant, '_providers', return_value=[provider]), \
+             patch.object(assistant, 'load_evidence', return_value=[]), \
+             patch.object(assistant, 'get_crypto_context', AsyncMock(return_value=snapshot)), \
+             patch.object(assistant, '_ask', AsyncMock(return_value=('Brief', {}))) as ask:
+            result = await assistant.answer_question('owner', 'Brief me', 'BTC', db=Database(), mode='crypto_brief', asset_type='crypto', backend_id='bitcoin')
+        self.assertEqual(result['market_context'], snapshot)
+        self.assertEqual(ask.await_args.kwargs['mode'], 'crypto_brief')
 
     async def test_concurrent_capture_deduplicates_asset_and_sample(self):
         db = Database()
